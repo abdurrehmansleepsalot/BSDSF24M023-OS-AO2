@@ -3,6 +3,7 @@
 
 - Features:
 *       -l option: Long listing format
+*       -x option: Horizontal column display (row-major)
 *       Default option: Column Display (Down Then Across) using ioctl
 */
 #include <stdio.h>
@@ -18,6 +19,11 @@
 #include <sys/ioctl.h>
 
 extern int errno;
+
+// Task 2: State Management for Display Modes
+#define MODE_DEFAULT 0
+#define MODE_LONG    1
+#define MODE_HORIZ   2
 
 // Helper function to format st_mode integer into rwxrwxrwx string
 void mode_to_letters(int mode, char str[])
@@ -44,7 +50,7 @@ void mode_to_letters(int mode, char str[])
     if (mode & S_IXOTH) str[9] = 'x';
 }
 
-// Function to handle long listing printing
+// Function to handle long listing printing (-l)
 void show_file_info(const char *dir, const char *filename)
 {
     struct stat info;
@@ -81,22 +87,21 @@ void show_file_info(const char *dir, const char *filename)
            filename);
 }
 
-// Task 3 & 4: Down then across column printing function
+// Vertical Column Display ("Down Then Across")
 void print_column_format(char **files, int count, int max_len)
 {
     if (count == 0)
         return;
 
-    // Task 3: Determine Terminal Width using ioctl (TIOCGWINSZ)
     struct winsize ws;
-    int term_width = 80; // Fallback width
+    int term_width = 80;
 
     if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) == 0 && ws.ws_col > 0)
     {
         term_width = ws.ws_col;
     }
 
-    int spacing = 2; // Space between columns
+    int spacing = 2;
     int col_width = max_len + spacing;
     int cols = term_width / col_width;
 
@@ -105,7 +110,6 @@ void print_column_format(char **files, int count, int max_len)
 
     int rows = (count + cols - 1) / cols;
 
-    // Task 4: Iterate row by row for "down then across" output
     for (int r = 0; r < rows; r++)
     {
         for (int c = 0; c < cols; c++)
@@ -113,7 +117,6 @@ void print_column_format(char **files, int count, int max_len)
             int index = c * rows + r;
             if (index < count)
             {
-                // Pad spaces to align with the next column
                 if (c == cols - 1 || (c + 1) * rows + r >= count)
                 {
                     printf("%s", files[index]);
@@ -128,29 +131,74 @@ void print_column_format(char **files, int count, int max_len)
     }
 }
 
-void do_ls(const char *dir, int long_mode);
+// Task 3: Horizontal Column Display ("Across Then Down" -x option)
+void print_horizontal_format(char **files, int count, int max_len)
+{
+    if (count == 0)
+        return;
+
+    struct winsize ws;
+    int term_width = 80;
+
+    if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) == 0 && ws.ws_col > 0)
+    {
+        term_width = ws.ws_col;
+    }
+
+    int spacing = 2;
+    int col_width = max_len + spacing;
+    int cols = term_width / col_width;
+
+    if (cols < 1)
+        cols = 1;
+
+    for (int i = 0; i < count; i++)
+    {
+        // Wrap to new line when line capacity is reached
+        if (i > 0 && i % cols == 0)
+        {
+            printf("\n");
+        }
+
+        if ((i + 1) % cols == 0 || i == count - 1)
+        {
+            printf("%s", files[i]);
+        }
+        else
+        {
+            printf("%-*s", col_width, files[i]);
+        }
+    }
+    printf("\n");
+}
+
+void do_ls(const char *dir, int display_mode);
 
 int main(int argc, char *argv[])
 {
     int opt;
-    int long_mode = 0;
+    int display_mode = MODE_DEFAULT;
 
-    while ((opt = getopt(argc, argv, "l")) != -1)
+    // Task 2: Extend getopt() for -l and -x options
+    while ((opt = getopt(argc, argv, "lx")) != -1)
     {
         switch (opt)
         {
         case 'l':
-            long_mode = 1;
+            display_mode = MODE_LONG;
+            break;
+        case 'x':
+            display_mode = MODE_HORIZ;
             break;
         default:
-            fprintf(stderr, "Usage: %s [-l] [directory...]\n", argv[0]);
+            fprintf(stderr, "Usage: %s [-l] [-x] [directory...]\n", argv[0]);
             exit(EXIT_FAILURE);
         }
     }
 
     if (optind == argc)
     {
-        do_ls(".", long_mode);
+        do_ls(".", display_mode);
     }
     else
     {
@@ -160,7 +208,7 @@ int main(int argc, char *argv[])
             {
                 printf("Directory listing of %s : \n", argv[i]);
             }
-            do_ls(argv[i], long_mode);
+            do_ls(argv[i], display_mode);
             if (argc - optind > 1)
             {
                 puts("");
@@ -170,7 +218,7 @@ int main(int argc, char *argv[])
     return 0;
 }
 
-void do_ls(const char *dir, int long_mode)
+void do_ls(const char *dir, int display_mode)
 {
     struct dirent *entry;
     DIR *dp = opendir(dir);
@@ -180,7 +228,6 @@ void do_ls(const char *dir, int long_mode)
         return;
     }
 
-    // Task 2: Dynamic allocation setup for filenames
     int capacity = 16;
     int count = 0;
     int max_len = 0;
@@ -192,7 +239,7 @@ void do_ls(const char *dir, int long_mode)
         if (entry->d_name[0] == '.')
             continue;
 
-        if (long_mode)
+        if (display_mode == MODE_LONG)
         {
             show_file_info(dir, entry->d_name);
         }
@@ -218,12 +265,19 @@ void do_ls(const char *dir, int long_mode)
         perror("readdir failed");
     }
 
-    // Print default column format if -l is not passed
-    if (!long_mode)
+    // Task 4: Mode dispatch based on display_mode flag
+    if (display_mode == MODE_HORIZ)
+    {
+        print_horizontal_format(files, count, max_len);
+    }
+    else if (display_mode == MODE_DEFAULT)
     {
         print_column_format(files, count, max_len);
+    }
 
-        // Free dynamically allocated memory
+    // Free dynamically allocated memory
+    if (display_mode != MODE_LONG)
+    {
         for (int i = 0; i < count; i++)
         {
             free(files[i]);
