@@ -50,3 +50,38 @@ The `ioctl()` system call with the `TIOCGWINSZ` request queries the terminal dri
 1. **Unused Space on Large Terminals:** On wide screen terminals (e.g., 120 or 160 columns), an 80-column fallback wraps output prematurely, leaving large blank areas on the right side and creating unnecessary vertical scrolling.
 2. **Output Wrapping on Narrow Terminals:** On small or split-screen terminals (< 80 columns), fixed 80-column lines spill over to new rows, breaking column alignment and producing garbled visual formatting.
 
+## Feature-4: Horizontal Column Display (-x Option)
+
+### Question 1: Compare the implementation complexity of the "down then across" (vertical) printing logic versus the "across" (horizontal) printing logic. Which one requires more pre-calculation and why?
+
+**Answer:**
+The **"down then across" (vertical)** printing logic is significantly more complex and requires more pre-calculation than the **"across" (horizontal)** logic[cite: 6, 7].
+
+1. **Pre-calculation Requirements:**
+   - **Vertical ("down then across"):** Must calculate total columns $Cols$, maximum filename length $C$, AND total required rows $Rows = \lceil N / Cols \rceil$ before printing a single character[cite: 5, 6]. Because standard terminals print row-by-row, accessing elements down a column requires calculating mathematical index offsets (`index = c * Rows + r`)[cite: 6].
+   - **Horizontal ("across"):** Only requires calculating the maximum number of columns $Cols$ that fit across the terminal width[cite: 7]. It iterates sequentially through the array ($0, 1, 2, \dots$) and outputs a newline (`\n`) whenever $i \% Cols == 0$[cite: 7].
+
+2. **Why Vertical is More Complex:**
+   Standard terminal devices output characters in row-major order (left-to-right, top-to-bottom). Printing vertically forces the program to map vertical column indexes onto horizontal output streams using row jumps, whereas horizontal mode naturally aligns with the terminal's native stream order[cite: 6, 7].
+
+---
+
+### Question 2: Describe the strategy you used in your code to manage the different display modes (-l, -x, and default). How did your program decide which function to call for printing?
+
+**Answer:**
+The display mode is managed using **State Management** via an integer/enum flag (`display_mode`) and Command-Line Argument Parsing[cite: 7]:
+
+1. **State Definition:**
+   Three explicit constants were defined to track current output format[cite: 7]:
+   - `MODE_DEFAULT (0)`: Default vertical column display ("down then across")[cite: 7].
+   - `MODE_LONG (1)`: Detailed metadata format (`-l`)[cite: 7].
+   - `MODE_HORIZ (2)`: Horizontal row-major display (`-x`)[cite: 7].
+
+2. **Argument Parsing in `main()`:**
+   The standard `getopt(argc, argv, "lx")` function checks incoming flags[cite: 3, 7]. If `-l` is present, `display_mode` is set to `MODE_LONG`; if `-x` is encountered, it is set to `MODE_HORIZ`[cite: 7].
+
+3. **Dispatch Strategy in `do_ls()`:**
+   After collecting directory contents into memory, `do_ls()` evaluates `display_mode`:
+   - If `display_mode == MODE_LONG`, `show_file_info()` prints entries directly line-by-line[cite: 3, 8].
+   - If `display_mode == MODE_HORIZ`, `print_horizontal_format()` handles left-to-right padded output[cite: 7, 8].
+   - If `display_mode == MODE_DEFAULT`, `print_column_format()` renders vertical columns[cite: 7, 8].
