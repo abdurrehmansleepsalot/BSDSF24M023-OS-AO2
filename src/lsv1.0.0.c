@@ -4,6 +4,7 @@
 - Features:
 *       -l option: Long listing format (sorted, colorized)
 *       -x option: Horizontal column display (sorted, colorized)
+*       -R option: Recursive directory listing
 *       Default option: Column Display (Down Then Across, sorted, colorized)
 */
 #include <stdio.h>
@@ -25,13 +26,13 @@ extern int errno;
 #define MODE_LONG    1
 #define MODE_HORIZ   2
 
-// Task 2: ANSI Escape Codes for File Types
+// ANSI Escape Codes for File Types
 #define COLOR_RESET   "\033[0m"
 #define COLOR_BLUE    "\033[1;34m" // Directory
 #define COLOR_GREEN   "\033[1;32m" // Executable
 #define COLOR_RED     "\033[1;31m" // Tarballs / Archives
 #define COLOR_PINK    "\033[1;35m" // Symbolic Links
-#define COLOR_REVERSE "\033[7m"    // Special Files (FIFO, Socket, Device)
+#define COLOR_REVERSE "\033[7m"    // Special Files
 
 // Comparison function for qsort()
 int compare_filenames(const void *a, const void *b)
@@ -56,7 +57,7 @@ int is_tarball(const char *filename)
     return 0;
 }
 
-// Task 3 & 4: Determine Color Code based on st_mode and file properties
+// Determine Color Code based on st_mode and file properties
 const char *get_color_code(const char *dir, const char *filename)
 {
     struct stat st;
@@ -68,34 +69,28 @@ const char *get_color_code(const char *dir, const char *filename)
         return COLOR_RESET;
     }
 
-    // 1. Symbolic Link -> Pink
     if (S_ISLNK(st.st_mode))
     {
         return COLOR_PINK;
     }
-    // 2. Directory -> Blue
     if (S_ISDIR(st.st_mode))
     {
         return COLOR_BLUE;
     }
-    // 3. Special Files (Character/Block devices, FIFOs, Sockets) -> Reverse Video
     if (S_ISCHR(st.st_mode) || S_ISBLK(st.st_mode) || 
         S_ISFIFO(st.st_mode) || S_ISSOCK(st.st_mode))
     {
         return COLOR_REVERSE;
     }
-    // 4. Tarballs / Compressed Archives -> Red
     if (is_tarball(filename))
     {
         return COLOR_RED;
     }
-    // 5. Executable File -> Green
     if (st.st_mode & (S_IXUSR | S_IXGRP | S_IXOTH))
     {
         return COLOR_GREEN;
     }
 
-    // Default regular file
     return COLOR_RESET;
 }
 
@@ -165,7 +160,7 @@ void show_file_info(const char *dir, const char *filename)
            COLOR_RESET);
 }
 
-// Vertical Column Display ("Down Then Across") with color alignment
+// Vertical Column Display ("Down Then Across")
 void print_column_format(const char *dir, char **files, int count, int max_len)
 {
     if (count == 0)
@@ -198,7 +193,6 @@ void print_column_format(const char *dir, char **files, int count, int max_len)
                 const char *color = get_color_code(dir, files[index]);
                 printf("%s%s%s", color, files[index], COLOR_RESET);
 
-                // Manual space padding to preserve strict alignment
                 if (!(c == cols - 1 || (c + 1) * rows + r >= count))
                 {
                     int pad = col_width - (int)strlen(files[index]);
@@ -213,7 +207,7 @@ void print_column_format(const char *dir, char **files, int count, int max_len)
     }
 }
 
-// Horizontal Column Display ("Across Then Down") with color alignment
+// Horizontal Column Display ("Across Then Down")
 void print_horizontal_format(const char *dir, char **files, int count, int max_len)
 {
     if (count == 0)
@@ -256,14 +250,16 @@ void print_horizontal_format(const char *dir, char **files, int count, int max_l
     printf("\n");
 }
 
-void do_ls(const char *dir, int display_mode);
+void do_ls(const char *dir, int display_mode, int recursive_mode);
 
 int main(int argc, char *argv[])
 {
     int opt;
     int display_mode = MODE_DEFAULT;
+    int recursive_mode = 0;
 
-    while ((opt = getopt(argc, argv, "lx")) != -1)
+    // Task 2: Extend getopt() for -l, -x, and -R flags
+    while ((opt = getopt(argc, argv, "lxR")) != -1)
     {
         switch (opt)
         {
@@ -273,26 +269,29 @@ int main(int argc, char *argv[])
         case 'x':
             display_mode = MODE_HORIZ;
             break;
+        case 'R':
+            recursive_mode = 1;
+            break;
         default:
-            fprintf(stderr, "Usage: %s [-l] [-x] [directory...]\n", argv[0]);
+            fprintf(stderr, "Usage: %s [-l] [-x] [-R] [directory...]\n", argv[0]);
             exit(EXIT_FAILURE);
         }
     }
 
     if (optind == argc)
     {
-        do_ls(".", display_mode);
+        do_ls(".", display_mode, recursive_mode);
     }
     else
     {
         for (int i = optind; i < argc; i++)
         {
-            if (argc - optind > 1)
+            if (argc - optind > 1 || recursive_mode)
             {
-                printf("Directory listing of %s : \n", argv[i]);
+                printf("%s:\n", argv[i]);
             }
-            do_ls(argv[i], display_mode);
-            if (argc - optind > 1)
+            do_ls(argv[i], display_mode, recursive_mode);
+            if (i < argc - 1)
             {
                 puts("");
             }
@@ -301,7 +300,8 @@ int main(int argc, char *argv[])
     return 0;
 }
 
-void do_ls(const char *dir, int display_mode)
+// Task 3: Modified do_ls Function with Recursive Support
+void do_ls(const char *dir, int display_mode, int recursive_mode)
 {
     struct dirent *entry;
     DIR *dp = opendir(dir);
@@ -341,10 +341,12 @@ void do_ls(const char *dir, int display_mode)
         perror("readdir failed");
     }
 
+    closedir(dp);
+
     // Sort filenames alphabetically
     qsort(files, count, sizeof(char *), compare_filenames);
 
-    // Render sorted entries using the requested display mode
+    // Render sorted entries for current directory
     if (display_mode == MODE_LONG)
     {
         for (int i = 0; i < count; i++)
@@ -361,11 +363,27 @@ void do_ls(const char *dir, int display_mode)
         print_column_format(dir, files, count, max_len);
     }
 
+    // Task 3: Handle Recursive Listing (-R)
+    if (recursive_mode)
+    {
+        for (int i = 0; i < count; i++)
+        {
+            char fullpath[2048];
+            snprintf(fullpath, sizeof(fullpath), "%s/%s", dir, files[i]);
+
+            struct stat st;
+            if (lstat(fullpath, &st) == 0 && S_ISDIR(st.st_mode))
+            {
+                printf("\n%s:\n", fullpath);
+                do_ls(fullpath, display_mode, recursive_mode);
+            }
+        }
+    }
+
     // Free memory
     for (int i = 0; i < count; i++)
     {
         free(files[i]);
     }
     free(files);
-    closedir(dp);
 }
