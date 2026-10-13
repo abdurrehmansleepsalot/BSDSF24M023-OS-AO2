@@ -107,6 +107,27 @@ The underlying filesystem directory stream (`opendir()`/`readdir()`) returns dir
 **Purpose:**
 `qsort()` is a generic sorting routine in the standard C library (`<stdlib.h>`). Because C lacks generic templates, `qsort()` does not know the data type of the array elements it is sorting. It relies on a user-provided comparison function pointer to evaluate the relative order of any two elements.
 
-**Signature:**
+
+## Feature-6: Colorized Output Based on File Type (ls-v1.5.0)
+
+### Question 1: How do ANSI escape codes work to produce color in a standard Linux terminal? Show the specific code sequence for printing text in green.
+
+**Answer:**
+ANSI escape codes are standardized escape sequences that terminal emulators interpret as control commands rather than printable text characters.
+
+1. **How They Work:**
+   When the terminal encounters the ESC control character (`\033` in octal or `\x1B` in hex), followed by `[`, it recognizes a **Control Sequence Introducer (CSI)**. 
+   
+   Color control uses the **Select Graphic Rendition (SGR)** command, formatted as `\033[<STYLE>;<COLOR>m`. Upon receiving an SGR command, the terminal changes its internal state for subsequent rendered text characters until it encounters a reset sequence (`\033[0m`).
+
+2. **Specific Code Sequence for Green Text:**
+   - **Sequence:** `"\033[1;32m"`
+     - `\033[` : CSI prefix
+     - `1` : Bold / High Intensity text attribute
+     - `32` : Foreground Green color identifier
+     - `m` : SGR command terminator
+   - **Reset Sequence:** `"\033[0m"` (resets color and formatting back to default)
+
+**Example Usage in C:**
 ```c
-int compare(const void *a, const void *b);
+printf("\033[1;32m%s\033[0m\n", "ExecutableFile");
