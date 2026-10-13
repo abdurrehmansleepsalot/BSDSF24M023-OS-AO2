@@ -2,9 +2,9 @@
 - Programming Assignment 02: lsv1.0.0
 
 - Features:
-*       -l option: Long listing format
-*       -x option: Horizontal column display (row-major)
-*       Default option: Column Display (Down Then Across) using ioctl
+*       -l option: Long listing format (sorted)
+*       -x option: Horizontal column display (sorted)
+*       Default option: Column Display (Down Then Across, sorted)
 */
 #include <stdio.h>
 #include <stdlib.h>
@@ -20,10 +20,19 @@
 
 extern int errno;
 
-// Task 2: State Management for Display Modes
+// State Management for Display Modes
 #define MODE_DEFAULT 0
 #define MODE_LONG    1
 #define MODE_HORIZ   2
+
+// Task 2: Comparison function for qsort()
+int compare_filenames(const void *a, const void *b)
+{
+    // Cast generic const void * pointers to const char ** (pointer to string)
+    const char *fileA = *(const char **)a;
+    const char *fileB = *(const char **)b;
+    return strcmp(fileA, fileB);
+}
 
 // Helper function to format st_mode integer into rwxrwxrwx string
 void mode_to_letters(int mode, char str[])
@@ -131,7 +140,7 @@ void print_column_format(char **files, int count, int max_len)
     }
 }
 
-// Task 3: Horizontal Column Display ("Across Then Down" -x option)
+// Horizontal Column Display ("Across Then Down" -x option)
 void print_horizontal_format(char **files, int count, int max_len)
 {
     if (count == 0)
@@ -154,7 +163,6 @@ void print_horizontal_format(char **files, int count, int max_len)
 
     for (int i = 0; i < count; i++)
     {
-        // Wrap to new line when line capacity is reached
         if (i > 0 && i % cols == 0)
         {
             printf("\n");
@@ -179,7 +187,6 @@ int main(int argc, char *argv[])
     int opt;
     int display_mode = MODE_DEFAULT;
 
-    // Task 2: Extend getopt() for -l and -x options
     while ((opt = getopt(argc, argv, "lx")) != -1)
     {
         switch (opt)
@@ -239,25 +246,18 @@ void do_ls(const char *dir, int display_mode)
         if (entry->d_name[0] == '.')
             continue;
 
-        if (display_mode == MODE_LONG)
+        if (count >= capacity)
         {
-            show_file_info(dir, entry->d_name);
+            capacity *= 2;
+            files = realloc(files, capacity * sizeof(char *));
         }
-        else
+        files[count] = strdup(entry->d_name);
+        int len = strlen(entry->d_name);
+        if (len > max_len)
         {
-            if (count >= capacity)
-            {
-                capacity *= 2;
-                files = realloc(files, capacity * sizeof(char *));
-            }
-            files[count] = strdup(entry->d_name);
-            int len = strlen(entry->d_name);
-            if (len > max_len)
-            {
-                max_len = len;
-            }
-            count++;
+            max_len = len;
         }
+        count++;
     }
 
     if (errno != 0)
@@ -265,8 +265,18 @@ void do_ls(const char *dir, int display_mode)
         perror("readdir failed");
     }
 
-    // Task 4: Mode dispatch based on display_mode flag
-    if (display_mode == MODE_HORIZ)
+    // Task 2: Sort all collected filenames alphabetically
+    qsort(files, count, sizeof(char *), compare_filenames);
+
+    // Task 3: Render pre-sorted list based on selected display mode
+    if (display_mode == MODE_LONG)
+    {
+        for (int i = 0; i < count; i++)
+        {
+            show_file_info(dir, files[i]);
+        }
+    }
+    else if (display_mode == MODE_HORIZ)
     {
         print_horizontal_format(files, count, max_len);
     }
@@ -275,15 +285,11 @@ void do_ls(const char *dir, int display_mode)
         print_column_format(files, count, max_len);
     }
 
-    // Free dynamically allocated memory
-    if (display_mode != MODE_LONG)
+    // Free allocated memory
+    for (int i = 0; i < count; i++)
     {
-        for (int i = 0; i < count; i++)
-        {
-            free(files[i]);
-        }
+        free(files[i]);
     }
-
     free(files);
     closedir(dp);
 }
