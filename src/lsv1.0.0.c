@@ -2,9 +2,9 @@
 - Programming Assignment 02: lsv1.0.0
 
 - Features:
-*       -l option: Long listing format (sorted)
-*       -x option: Horizontal column display (sorted)
-*       Default option: Column Display (Down Then Across, sorted)
+*       -l option: Long listing format (sorted, colorized)
+*       -x option: Horizontal column display (sorted, colorized)
+*       Default option: Column Display (Down Then Across, sorted, colorized)
 */
 #include <stdio.h>
 #include <stdlib.h>
@@ -20,18 +20,83 @@
 
 extern int errno;
 
-// State Management for Display Modes
+// Display Modes
 #define MODE_DEFAULT 0
 #define MODE_LONG    1
 #define MODE_HORIZ   2
 
-// Task 2: Comparison function for qsort()
+// Task 2: ANSI Escape Codes for File Types
+#define COLOR_RESET   "\033[0m"
+#define COLOR_BLUE    "\033[1;34m" // Directory
+#define COLOR_GREEN   "\033[1;32m" // Executable
+#define COLOR_RED     "\033[1;31m" // Tarballs / Archives
+#define COLOR_PINK    "\033[1;35m" // Symbolic Links
+#define COLOR_REVERSE "\033[7m"    // Special Files (FIFO, Socket, Device)
+
+// Comparison function for qsort()
 int compare_filenames(const void *a, const void *b)
 {
-    // Cast generic const void * pointers to const char ** (pointer to string)
     const char *fileA = *(const char **)a;
     const char *fileB = *(const char **)b;
     return strcmp(fileA, fileB);
+}
+
+// Helper to identify tarballs and compressed archives
+int is_tarball(const char *filename)
+{
+    const char *ext = strrchr(filename, '.');
+    if (!ext) return 0;
+
+    if (strcmp(ext, ".tar") == 0 || strcmp(ext, ".gz") == 0 || 
+        strcmp(ext, ".zip") == 0 || strcmp(ext, ".bz2") == 0 || 
+        strcmp(ext, ".xz") == 0)
+    {
+        return 1;
+    }
+    return 0;
+}
+
+// Task 3 & 4: Determine Color Code based on st_mode and file properties
+const char *get_color_code(const char *dir, const char *filename)
+{
+    struct stat st;
+    char path[1024];
+    snprintf(path, sizeof(path), "%s/%s", dir, filename);
+
+    if (lstat(path, &st) == -1)
+    {
+        return COLOR_RESET;
+    }
+
+    // 1. Symbolic Link -> Pink
+    if (S_ISLNK(st.st_mode))
+    {
+        return COLOR_PINK;
+    }
+    // 2. Directory -> Blue
+    if (S_ISDIR(st.st_mode))
+    {
+        return COLOR_BLUE;
+    }
+    // 3. Special Files (Character/Block devices, FIFOs, Sockets) -> Reverse Video
+    if (S_ISCHR(st.st_mode) || S_ISBLK(st.st_mode) || 
+        S_ISFIFO(st.st_mode) || S_ISSOCK(st.st_mode))
+    {
+        return COLOR_REVERSE;
+    }
+    // 4. Tarballs / Compressed Archives -> Red
+    if (is_tarball(filename))
+    {
+        return COLOR_RED;
+    }
+    // 5. Executable File -> Green
+    if (st.st_mode & (S_IXUSR | S_IXGRP | S_IXOTH))
+    {
+        return COLOR_GREEN;
+    }
+
+    // Default regular file
+    return COLOR_RESET;
 }
 
 // Helper function to format st_mode integer into rwxrwxrwx string
@@ -59,7 +124,7 @@ void mode_to_letters(int mode, char str[])
     if (mode & S_IXOTH) str[9] = 'x';
 }
 
-// Function to handle long listing printing (-l)
+// Long listing function (-l) with color
 void show_file_info(const char *dir, const char *filename)
 {
     struct stat info;
@@ -86,18 +151,22 @@ void show_file_info(const char *dir, const char *filename)
     struct tm *tm_info = localtime(&info.st_mtime);
     strftime(timebuf, sizeof(timebuf), "%b %d %H:%M", tm_info);
 
-    printf("%s %2ld %-8s %-8s %8lld %s %s\n",
+    const char *color = get_color_code(dir, filename);
+
+    printf("%s %2ld %-8s %-8s %8lld %s %s%s%s\n",
            modestr,
            (long)info.st_nlink,
            uid_name,
            gid_name,
            (long long)info.st_size,
            timebuf,
-           filename);
+           color,
+           filename,
+           COLOR_RESET);
 }
 
-// Vertical Column Display ("Down Then Across")
-void print_column_format(char **files, int count, int max_len)
+// Vertical Column Display ("Down Then Across") with color alignment
+void print_column_format(const char *dir, char **files, int count, int max_len)
 {
     if (count == 0)
         return;
@@ -126,13 +195,17 @@ void print_column_format(char **files, int count, int max_len)
             int index = c * rows + r;
             if (index < count)
             {
-                if (c == cols - 1 || (c + 1) * rows + r >= count)
+                const char *color = get_color_code(dir, files[index]);
+                printf("%s%s%s", color, files[index], COLOR_RESET);
+
+                // Manual space padding to preserve strict alignment
+                if (!(c == cols - 1 || (c + 1) * rows + r >= count))
                 {
-                    printf("%s", files[index]);
-                }
-                else
-                {
-                    printf("%-*s", col_width, files[index]);
+                    int pad = col_width - (int)strlen(files[index]);
+                    for (int k = 0; k < pad; k++)
+                    {
+                        putchar(' ');
+                    }
                 }
             }
         }
@@ -140,8 +213,8 @@ void print_column_format(char **files, int count, int max_len)
     }
 }
 
-// Horizontal Column Display ("Across Then Down" -x option)
-void print_horizontal_format(char **files, int count, int max_len)
+// Horizontal Column Display ("Across Then Down") with color alignment
+void print_horizontal_format(const char *dir, char **files, int count, int max_len)
 {
     if (count == 0)
         return;
@@ -168,13 +241,16 @@ void print_horizontal_format(char **files, int count, int max_len)
             printf("\n");
         }
 
-        if ((i + 1) % cols == 0 || i == count - 1)
+        const char *color = get_color_code(dir, files[i]);
+        printf("%s%s%s", color, files[i], COLOR_RESET);
+
+        if (!((i + 1) % cols == 0 || i == count - 1))
         {
-            printf("%s", files[i]);
-        }
-        else
-        {
-            printf("%-*s", col_width, files[i]);
+            int pad = col_width - (int)strlen(files[i]);
+            for (int k = 0; k < pad; k++)
+            {
+                putchar(' ');
+            }
         }
     }
     printf("\n");
@@ -265,10 +341,10 @@ void do_ls(const char *dir, int display_mode)
         perror("readdir failed");
     }
 
-    // Task 2: Sort all collected filenames alphabetically
+    // Sort filenames alphabetically
     qsort(files, count, sizeof(char *), compare_filenames);
 
-    // Task 3: Render pre-sorted list based on selected display mode
+    // Render sorted entries using the requested display mode
     if (display_mode == MODE_LONG)
     {
         for (int i = 0; i < count; i++)
@@ -278,14 +354,14 @@ void do_ls(const char *dir, int display_mode)
     }
     else if (display_mode == MODE_HORIZ)
     {
-        print_horizontal_format(files, count, max_len);
+        print_horizontal_format(dir, files, count, max_len);
     }
     else if (display_mode == MODE_DEFAULT)
     {
-        print_column_format(files, count, max_len);
+        print_column_format(dir, files, count, max_len);
     }
 
-    // Free allocated memory
+    // Free memory
     for (int i = 0; i < count; i++)
     {
         free(files[i]);
