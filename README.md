@@ -128,6 +128,34 @@ ANSI escape codes are standardized escape sequences that terminal emulators inte
      - `m` : SGR command terminator
    - **Reset Sequence:** `"\033[0m"` (resets color and formatting back to default)
 
-**Example Usage in C:**
-```c
-printf("\033[1;32m%s\033[0m\n", "ExecutableFile");
+## Feature-7: Recursive Listing (-R Option)
+
+### Question 1: In a recursive function, what is a "base case"? In the context of your recursive `ls`, what is the base case that stops the recursion from continuing forever?
+
+**Answer:**
+**1. Definition of a Base Case:**
+In a recursive algorithm, a **base case** is a terminating condition that stops further recursive execution without making additional self-referential calls, preventing infinite recursion and call stack overflow.
+
+**2. Base Case in Recursive `ls`:**
+In our `do_ls()` function, the base case occurs when a directory contains **no subdirectories** (or contains only files, special devices, symbolic links, or empty listings). 
+
+When `do_ls()` finishes listing entries in a directory and iterates through the sorted array to find subdirectories:
+- If an entry is a regular file or link, `S_ISDIR(st.st_mode)` evaluates to `false`.
+- If no entry satisfies `S_ISDIR()`, no further recursive calls to `do_ls()` are triggered.
+- The function unwinds its stack frame, freeing memory and returning control back to the parent caller.
+
+*(Additionally, ignoring hidden entries `.` and `..` prevents infinite self-referential loops back to the current or parent directory).*
+
+---
+
+### Question 2: Explain why it is essential to construct a full path (e.g., `"parent_dir/subdir"`) before making a recursive call. What would happen if you simply called `do_ls("subdir")` from within the `do_ls("parent_dir")` function call?
+
+**Answer:**
+**1. Importance of Full Path Construction:**
+System calls like `opendir()`, `stat()`, and `lstat()` resolve paths relative to the process's current working directory (CWD). When `do_ls()` recurses into a nested directory, it does not change the working directory of the running process via `chdir()`. Therefore, passing only the base folder name (`"subdir"`) causes system calls to search for `"subdir"` directly inside the root working directory where the program was launched, rather than inside `"parent_dir/subdir"`.
+
+**2. Consequence of Calling `do_ls("subdir")`:**
+If `do_ls("subdir")` is called without path concatenation:
+- `opendir("subdir")` will fail with an error (`Cannot open directory : subdir`) unless a directory named `"subdir"` happens to exist in the root working directory.
+- Metadata checks (`lstat`) will target the wrong files or fail entirely (`ENOENT`).
+- The program will fail to traverse nested multi-level directory trees (e.g., `src/utils/helpers`).
