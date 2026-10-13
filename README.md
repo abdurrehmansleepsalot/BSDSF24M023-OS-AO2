@@ -85,3 +85,28 @@ The display mode is managed using **State Management** via an integer/enum flag 
    - If `display_mode == MODE_LONG`, `show_file_info()` prints entries directly line-by-line[cite: 3, 8].
    - If `display_mode == MODE_HORIZ`, `print_horizontal_format()` handles left-to-right padded output[cite: 7, 8].
    - If `display_mode == MODE_DEFAULT`, `print_column_format()` renders vertical columns[cite: 7, 8].
+  
+## Feature-5: Alphabetical Sort (ls-v1.4.0)
+
+### Question 1: Why is it necessary to read all directory entries into memory before you can sort them? What are the potential drawbacks of this approach for directories containing millions of files?
+
+**Answer:**
+**Necessity of Reading Entries First:**
+The underlying filesystem directory stream (`opendir()`/`readdir()`) returns directory entries in whatever order the filesystem driver encounters them on disk (often hash order, inode order, or order of creation). Because `readdir()` provides entries sequentially one at a time via a stream interface, the total size and complete set of elements cannot be known in advance. In-place comparison algorithms like `qsort()` require random access to the entire collection to swap and sort elements, making it mandatory to load all entries into memory prior to sorting.
+
+**Potential Drawbacks for Large Directories (Millions of Files):**
+1. **High Memory Overhead:** Storing millions of string filenames along with array pointers (`char **`) consumes substantial RAM. If memory capacity is exceeded, the process risks running out of memory (OOM crash).
+2. **High Latency / Slow Response:** The user experiences significant delay before seeing any output because reading and sorting millions of entries must finish completely before the first line is printed.
+3. **Cache Invalidation & Thrashing:** Sorting extremely large arrays in memory degrades CPU cache performance and causes page thrashing if memory spills to disk swap space.
+
+---
+
+### Question 2: Explain the purpose and signature of the comparison function required by `qsort()`. How does it work, and why must it take `const void *` arguments?
+
+**Answer:**
+**Purpose:**
+`qsort()` is a generic sorting routine in the standard C library (`<stdlib.h>`). Because C lacks generic templates, `qsort()` does not know the data type of the array elements it is sorting. It relies on a user-provided comparison function pointer to evaluate the relative order of any two elements.
+
+**Signature:**
+```c
+int compare(const void *a, const void *b);
